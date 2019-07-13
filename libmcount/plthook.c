@@ -816,12 +816,19 @@ static unsigned long __plthook_entry(unsigned long *ret_addr,
 	rstack->nr_events  = 0;
 	rstack->event_idx  = ARGBUF_SIZE;
 
-	/* hijack the return address of child */
-	*ret_addr = (unsigned long)plthook_return;
+	if (mcount_flat) {
+		/* record function entry only in flat mode */
+		mtdp->idx = 0;
+		rstack->depth = 0;
+	}
+	else {
+		/* hijack the return address of child */
+		*ret_addr = (unsigned long)plthook_return;
 
-	/* restore return address of parent */
-	if (mcount_auto_recover)
-		mcount_auto_restore(mtdp);
+		/* restore return address of parent */
+		if (mcount_auto_recover)
+			mcount_auto_restore(mtdp);
+	}
 
 	mcount_entry_filter_record(mtdp, rstack, &tr, regs);
 

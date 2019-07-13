@@ -1024,7 +1024,7 @@ void mcount_entry_filter_record(struct mcount_thread_data *mtdp,
 			if (mcount_watchpoints)
 				save_watchpoint(mtdp, rstack, mcount_watchpoints);
 
-			if (mtdp->nr_events) {
+			if (mtdp->nr_events || mcount_flat) {
 				bool flush = false;
 				int i;
 
@@ -1036,7 +1036,7 @@ void mcount_entry_filter_record(struct mcount_thread_data *mtdp,
 					if (mtdp->event[i].idx == ASYNC_IDX)
 						flush = true;
 
-				if (flush)
+				if (flush || mcount_flat)
 					record_trace_data(mtdp, rstack, NULL);
 			}
 		}
@@ -1159,7 +1159,13 @@ void mcount_entry_filter_record(struct mcount_thread_data *mtdp,
 				struct uftrace_trigger *tr,
 				struct mcount_regs *regs)
 {
-	mtdp->record_idx++;
+	if (mcount_flat) {
+		mtdp->record_idx = 0;
+		record_trace_data(mtdp, rstack, NULL);
+	}
+	else {
+		mtdp->record_idx++;
+	}
 }
 
 void mcount_exit_filter_record(struct mcount_thread_data *mtdp,
@@ -1243,12 +1249,19 @@ static int __mcount_entry(unsigned long *parent_loc, unsigned long child,
 	rstack->nr_events  = 0;
 	rstack->event_idx  = ARGBUF_SIZE;
 
-	/* hijack the return address of child */
-	*parent_loc = mcount_return_fn;
+	if (mcount_flat) {
+		/* record function entry only in flat mode */
+		mtdp->idx = 0;
+		rstack->depth = 0;
+	}
+	else {
+		/* hijack the return address of child */
+		*parent_loc = mcount_return_fn;
 
-	/* restore return address of parent */
-	if (mcount_auto_recover)
-		mcount_auto_restore(mtdp);
+		/* restore return address of parent */
+		if (mcount_auto_recover)
+			mcount_auto_restore(mtdp);
+	}
 
 	mcount_entry_filter_record(mtdp, rstack, &tr, regs);
 	mcount_unguard_recursion(mtdp);
