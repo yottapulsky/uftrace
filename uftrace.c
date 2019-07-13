@@ -667,6 +667,7 @@ static int parse_option(struct opts *opts, int key, char *arg)
 
 	case OPT_flat:
 		opts->flat = true;
+		opts->no_event = true;
 		break;
 
 	case OPT_no_libcall:
