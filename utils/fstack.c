@@ -1926,6 +1926,7 @@ static void fstack_account_time(struct uftrace_task_reader *task)
 static void fstack_update_stack_count(struct uftrace_task_reader *task)
 {
 	struct uftrace_record *rstack = task->rstack;
+	struct uftrace_data *handle = task->h;
 	struct uftrace_record dummy_rec;
 
 	if (rstack->type == UFTRACE_EVENT) {
@@ -1941,6 +1942,13 @@ static void fstack_update_stack_count(struct uftrace_task_reader *task)
 		task->ctx = FSTACK_CTX_KERNEL;
 	else
 		task->ctx = FSTACK_CTX_UNKNOWN;
+
+	if (handle->hdr.feat_mask & FLAT) {
+		task->stack_count = 1;
+		if (task->ctx == FSTACK_CTX_USER)
+			task->user_stack_count = 1;
+		return;
+	}
 
 	if (rstack->type == UFTRACE_ENTRY)
 		task->stack_count++;
