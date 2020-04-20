@@ -137,7 +137,7 @@ __used static const char uftrace_help[] =
 "      --event-full           Show all events outside of function\n"
 "  -E, --Event=EVENT          Enable EVENT to save more information\n"
 "      --flame-graph          Dump recorded data in FlameGraph format\n"
-"      --flat                 Use flat output format\n"
+"      --flat                 Use entry record type only\n"
 "      --force                Trace even if executable is not instrumented\n"
 "  -f, --output-fields=FIELD  Show FIELDs in the replay or graph output\n"
 "  -F, --filter=FUNC          Only trace those FUNCs\n"
