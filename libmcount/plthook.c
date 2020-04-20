@@ -802,6 +802,17 @@ static unsigned long __plthook_entry(unsigned long *ret_addr,
 			goto out;
 	}
 
+	if (mcount_flat) {
+		while (mtdp->idx > 0) {
+			int below = mtdp->idx - 1;
+
+			if (mtdp->rstack[below].parent_loc > ret_addr)
+				break;
+			mtdp->idx--;
+		}
+		mtdp->record_idx = mtdp->idx;
+	}
+
 	rstack = &mtdp->rstack[mtdp->idx++];
 
 	rstack->depth      = mtdp->record_idx;
@@ -816,12 +827,7 @@ static unsigned long __plthook_entry(unsigned long *ret_addr,
 	rstack->nr_events  = 0;
 	rstack->event_idx  = ARGBUF_SIZE;
 
-	if (mcount_flat) {
-		/* record function entry only in flat mode */
-		mtdp->idx = 0;
-		rstack->depth = 0;
-	}
-	else {
+	if (!mcount_flat) {
 		/* hijack the return address of child */
 		*ret_addr = (unsigned long)plthook_return;
 

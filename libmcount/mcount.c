@@ -1159,13 +1159,10 @@ void mcount_entry_filter_record(struct mcount_thread_data *mtdp,
 				struct uftrace_trigger *tr,
 				struct mcount_regs *regs)
 {
-	if (mcount_flat) {
-		mtdp->record_idx = 0;
+	if (mcount_flat)
 		record_trace_data(mtdp, rstack, NULL);
-	}
-	else {
+	else
 		mtdp->record_idx++;
-	}
 }
 
 void mcount_exit_filter_record(struct mcount_thread_data *mtdp,
@@ -1236,6 +1233,17 @@ static int __mcount_entry(unsigned long *parent_loc, unsigned long child,
 	/* fixup the parent_loc in an arch-dependant way (if needed) */
 	parent_loc = mcount_arch_parent_location(&symtabs, parent_loc, child);
 
+	if (mcount_flat) {
+		while (mtdp->idx > 0) {
+			int below = mtdp->idx - 1;
+
+			if (mtdp->rstack[below].parent_loc > parent_loc)
+				break;
+			mtdp->idx--;
+		}
+		mtdp->record_idx = mtdp->idx;
+	}
+
 	rstack = &mtdp->rstack[mtdp->idx++];
 
 	rstack->depth      = mtdp->record_idx;
@@ -1249,12 +1257,7 @@ static int __mcount_entry(unsigned long *parent_loc, unsigned long child,
 	rstack->nr_events  = 0;
 	rstack->event_idx  = ARGBUF_SIZE;
 
-	if (mcount_flat) {
-		/* record function entry only in flat mode */
-		mtdp->idx = 0;
-		rstack->depth = 0;
-	}
-	else {
+	if (!mcount_flat) {
 		/* hijack the return address of child */
 		*parent_loc = mcount_return_fn;
 
