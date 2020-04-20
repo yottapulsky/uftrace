@@ -28,6 +28,8 @@
 /* global symbol tables for libmcount */
 extern struct symtabs symtabs;
 
+extern bool mcount_flat;
+
 /* address of dynamic linker's resolver routine (copied from GOT[2]) */
 unsigned long plthook_resolver_addr;	/* referenced by arch/.../plthook.S */
 
@@ -151,6 +153,9 @@ static void restore_plt_functions(struct plthook_data *pd)
 			pr_dbg2("restore GOT[%d] from \"%s\"(%#lx) to PLT(base + %#lx)\n",
 				got_idx, sym->name, resolved_addr,
 				plthook_addr - pd->base_addr);
+		}
+		else if (mcount_flat) {
+			resolve_pltgot(pd, i);
 		}
 	}
 }

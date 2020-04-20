@@ -1797,14 +1797,14 @@ static __used void mcount_startup(void)
 	if (event_str)
 		mcount_setup_events(dirname, event_str, patt_type);
 
-	if (plthook_str)
-		mcount_setup_plthook(mcount_exename, nest_libcall);
-
 	if (getenv("UFTRACE_KERNEL_PID_UPDATE"))
 		kernel_pid_update = true;
 
 	if (getenv("UFTRACE_FLAT"))
 		mcount_flat = true;
+
+	if (plthook_str)
+		mcount_setup_plthook(mcount_exename, nest_libcall);
 
 	pthread_atfork(atfork_prepare_handler, NULL, atfork_child_handler);
 
