@@ -697,6 +697,11 @@ static void segv_handler(int sig, siginfo_t *si, void *ctx)
 		       sig, strsignal(sig), si->si_code);
 	}
 
+	if (!mcount_flat) {
+		pr_warn(" if this happens only with uftrace,"
+			" please consider --flat option.\n\n");
+	}
+
 	pr_warn("Backtrace from uftrace:\n");
 	pr_warn("=====================================\n");
 
