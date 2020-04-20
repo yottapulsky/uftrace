@@ -445,6 +445,56 @@ static int print_flat_rstack(struct uftrace_data *handle,
 
 		fstack_update(UFTRACE_ENTRY, task, fstack);
 	}
+	else if (rstack->type == UFTRACE_EVENT) {
+		int depth;
+		struct fstack *fstack;
+		struct uftrace_task_reader *next = NULL;
+		struct uftrace_record rec = *rstack;
+		uint64_t evt_id = rstack->addr;
+
+		depth = rstack->depth;
+
+		/* give a new line when tid is changed */
+		if (opts->task_newline)
+			print_task_newline(task->tid);
+
+		/*
+		 * try to merge a subsequent sched-in event:
+		 * it might overwrite rstack - use (saved) rec for printing.
+		 */
+		if (evt_id == EVENT_ID_PERF_SCHED_OUT && !opts->no_merge)
+			next = fstack_skip(handle, task, 0, opts);
+
+		if (task == next &&
+		    next->rstack->addr == EVENT_ID_PERF_SCHED_IN) {
+			/* consume the matching sched-in record */
+			fstack_consume(handle, next);
+
+			rec.addr = sched_sym.addr;
+			evt_id = EVENT_ID_PERF_SCHED_IN;
+		}
+
+		/* show external data regardless of display depth */
+		if (evt_id == EVENT_ID_EXTERN_DATA)
+			depth = 0;
+
+		/* for sched-in to show schedule duration */
+		fstack = fstack_get(task, task->stack_count);
+
+		if (fstack_enabled && fstack != NULL &&
+		    !(fstack->flags & FSTACK_FL_NORECORD)) {
+			if (evt_id == EVENT_ID_PERF_SCHED_IN &&
+			    fstack->total_time)
+				print_field(task, fstack, NULL);
+			else
+				print_field(task, NULL, NO_TIME);
+
+			pr_color(task->event_color, "%*s/* ", depth * 2, "");
+			print_event(task, &rec, task->event_color);
+			pr_color(task->event_color, " */\n");
+		}
+
+	}
 	else if (rstack->type == UFTRACE_LOST) {
 		int losts;
 lost:
