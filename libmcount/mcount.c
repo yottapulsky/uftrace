@@ -92,6 +92,9 @@ unsigned long mcount_return_fn;
 /* disassembly engine for dynamic code patch */
 static struct mcount_disasm_engine disasm;
 
+/* do not hook return address and inject EXIT record between functions */
+bool mcount_estimate_return;
+
 __weak void dynamic_return(void) { }
 
 #ifdef DISABLE_MCOUNT_FILTER
@@ -570,6 +573,24 @@ unlock:
 	pthread_mutex_unlock(&finish_lock);
 }
 
+static void mcount_rstack_estimate_finish(struct mcount_thread_data *mtdp)
+{
+	uint64_t ret_time = mcount_gettime();
+
+	pr_dbg2("generates EXIT records for task %d (idx = %d)\n",
+		mcount_gettid(mtdp), mtdp->idx);
+
+	while (mtdp->idx > 0) {
+		mtdp->idx--;
+		ret_time++;
+
+		/* add fake exit records */
+		mtdp->rstack[mtdp->idx].end_time = ret_time;
+		mcount_exit_filter_record(mtdp, &mtdp->rstack[mtdp->idx],
+					  NULL);
+	}
+}
+
 /* to be used by pthread_create_key() */
 void mtd_dtor(void *arg)
 {
@@ -585,6 +606,9 @@ void mtd_dtor(void *arg)
 	/* this thread is done, do not enter anymore */
 	mtdp->recursion_marker = true;
 	mtdp->dead = true;
+
+	if (mcount_estimate_return)
+		mcount_rstack_estimate_finish(mtdp);
 
 	mcount_rstack_restore(mtdp);
 
@@ -781,6 +805,12 @@ static void mcount_finish(void)
 {
 	if (!mcount_should_stop())
 		mcount_trace_finish(false);
+
+	if (mcount_estimate_return) {
+		struct mcount_thread_data *mtdp = get_thread_data();
+		if (!check_thread_data(mtdp))
+			mcount_rstack_estimate_finish(mtdp);
+	}
 
 	mcount_global_flags |= MCOUNT_GFL_FINISH;
 }
@@ -1183,6 +1213,37 @@ mcount_arch_parent_location(struct symtabs *symtabs, unsigned long *parent_loc,
 }
 #endif
 
+void mcount_rstack_inject_return(struct mcount_thread_data *mtdp,
+				 unsigned long *frame_pointer)
+{
+	uint64_t estimated_ret_time = 0;
+
+	if (mtdp->idx > 0) {
+		/*
+		 * NOTE: we don't know the exact return time.
+		 * estimate it as a half of delta from the previous start.
+		 */
+		estimated_ret_time  = mcount_gettime();
+		estimated_ret_time += mtdp->rstack[mtdp->idx-1].start_time;
+		estimated_ret_time /= 2;
+	}
+
+	while (mtdp->idx > 0) {
+		int below = mtdp->idx - 1;
+
+		if (mtdp->rstack[below].parent_loc > frame_pointer)
+			break;
+
+		/* add fake exit records */
+		mtdp->rstack[below].end_time = estimated_ret_time;
+		mcount_exit_filter_record(mtdp, &mtdp->rstack[below],
+					  NULL);
+		mtdp->idx--;
+		estimated_ret_time++;
+	}
+	mtdp->record_idx = mtdp->idx;
+}
+
 static int __mcount_entry(unsigned long *parent_loc, unsigned long child,
 			  struct mcount_regs *regs)
 {
@@ -1227,6 +1288,9 @@ static int __mcount_entry(unsigned long *parent_loc, unsigned long child,
 	/* fixup the parent_loc in an arch-dependant way (if needed) */
 	parent_loc = mcount_arch_parent_location(&symtabs, parent_loc, child);
 
+	if (mcount_estimate_return)
+		mcount_rstack_inject_return(mtdp, parent_loc);
+
 	rstack = &mtdp->rstack[mtdp->idx++];
 
 	rstack->depth      = mtdp->record_idx;
@@ -1240,12 +1304,14 @@ static int __mcount_entry(unsigned long *parent_loc, unsigned long child,
 	rstack->nr_events  = 0;
 	rstack->event_idx  = ARGBUF_SIZE;
 
-	/* hijack the return address of child */
-	*parent_loc = mcount_return_fn;
+	if (!mcount_estimate_return) {
+		/* hijack the return address of child */
+		*parent_loc = mcount_return_fn;
 
-	/* restore return address of parent */
-	if (mcount_auto_recover)
-		mcount_auto_restore(mtdp);
+		/* restore return address of parent */
+		if (mcount_auto_recover)
+			mcount_auto_restore(mtdp);
+	}
 
 	mcount_entry_filter_record(mtdp, rstack, &tr, regs);
 	mcount_unguard_recursion(mtdp);
@@ -1778,11 +1844,16 @@ static __used void mcount_startup(void)
 	if (event_str)
 		mcount_setup_events(dirname, event_str, patt_type);
 
-	if (plthook_str)
-		mcount_setup_plthook(mcount_exename, nest_libcall);
-
 	if (getenv("UFTRACE_KERNEL_PID_UPDATE"))
 		kernel_pid_update = true;
+
+	if (getenv("UFTRACE_ESTIMATE_RETURN"))
+		mcount_estimate_return = true;
+
+	if (plthook_str) {
+		/* PLT hook depends on mcount_estimate_return */
+		mcount_setup_plthook(mcount_exename, nest_libcall);
+	}
 
 	pthread_atfork(atfork_prepare_handler, NULL, atfork_child_handler);
 
