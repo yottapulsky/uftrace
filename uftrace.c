@@ -100,6 +100,7 @@ enum options {
 	OPT_signal,
 	OPT_srcline,
 	OPT_usage,
+	OPT_estimate_return,
 };
 
 __used static const char uftrace_usage[] =
@@ -134,6 +135,7 @@ __used static const char uftrace_help[] =
 "                             (default: 'abs,compact,no-percent')\n"
 "      --disable              Start with tracing disabled\n"
 "  -D, --depth=DEPTH          Trace functions within DEPTH\n"
+"      --estimate-return      Use only entry record type for safety\n"
 "      --event-full           Show all events outside of function\n"
 "  -E, --Event=EVENT          Enable EVENT to save more information\n"
 "      --flame-graph          Dump recorded data in FlameGraph format\n"
@@ -294,6 +296,7 @@ static const struct option uftrace_options[] = {
 	NO_ARG(help, 'h'),
 	NO_ARG(usage, OPT_usage),
 	NO_ARG(version, 'V'),
+	NO_ARG(estimate-return, OPT_estimate_return),
 	{ 0 }
 };
 
@@ -919,6 +922,10 @@ static int parse_option(struct opts *opts, int key, char *arg)
 
 	case OPT_srcline:
 		opts->srcline = true;
+		break;
+
+	case OPT_estimate_return:
+		opts->estimate_return = true;
 		break;
 
 	default:
