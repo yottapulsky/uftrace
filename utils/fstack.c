@@ -2134,6 +2134,46 @@ static bool peek_event_rstack(struct uftrace_task_reader *task)
 	return true;
 }
 
+/* delay ustack after this schedule event */
+static void adjust_rstack_after_schedule(struct uftrace_data *handle,
+					 struct uftrace_task_reader *task)
+{
+	struct uftrace_record *rec;
+	struct fstack *fstack;
+
+	rec = get_first_rstack_list(&task->rstack_list);
+
+	/* get ENTRY record of the user function */
+	if (task->rstack->addr == EVENT_ID_PERF_SCHED_IN && task->stack_count >= 2)
+		fstack = fstack_get(task, task->stack_count - 2);
+	else
+		fstack = fstack_get(task, task->stack_count - 1);
+
+	if (fstack != NULL && fstack->addr == rec->addr) {
+		if (task->rstack->addr == EVENT_ID_PERF_SCHED_OUT) {
+			if (rec->time != ~0ULL) {
+				pr_dbg3("task[%6d] delay next record after schedule\n",
+					task->tid);
+				task->timestamp_estimate = rec->time;
+				rec->time = ~0ULL;
+			}
+			return;
+		}
+
+		/* get next function start time */
+		task->timestamp_estimate *= 2;
+		/* fstack->total_time still has the start time */
+		task->timestamp_estimate -= fstack->total_time;
+		/* calculate half between sched in and next */
+		task->timestamp_estimate += task->rstack->time;
+		task->timestamp_estimate /= 2;
+
+		rec->time = task->timestamp_estimate;
+		pr_dbg3("task[%6d] estimate next record after schedule: %lu.%09lu\n",
+			task->tid, rec->time / NSEC_PER_SEC, rec->time % NSEC_PER_SEC);
+	}
+}
+
 static int __read_rstack(struct uftrace_data *handle,
 			 struct uftrace_task_reader **taskp,
 			 bool consume)
@@ -2254,6 +2294,12 @@ static int __read_rstack(struct uftrace_data *handle,
 			free(task->args.data);
 			task->args.data = xstrdup(perf->u.comm.comm);
 			task->args.len  = strlen(perf->u.comm.comm);
+		}
+		else if (task->rstack->addr == EVENT_ID_PERF_SCHED_IN ||
+			 task->rstack->addr == EVENT_ID_PERF_SCHED_OUT) {
+			if (unlikely(handle->hdr.feat_mask & ESTIMATE_RETURN &&
+				     task->stack_count > 0))
+				adjust_rstack_after_schedule(handle, task);
 		}
 		break;
 
