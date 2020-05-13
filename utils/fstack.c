@@ -241,6 +241,15 @@ static int setup_callers(struct uftrace_session *s, void *arg)
 	return 0;
 }
 
+static int setup_hide(struct uftrace_session *s, void *arg)
+{
+	struct uftrace_filter_setting *setting = arg;
+
+	uftrace_setup_hide_filter(setting->private, &s->symtabs, &s->filters,
+				    setting);
+	return 0;
+}
+
 static int count_filters(struct uftrace_session *s, void *arg)
 {
 	int *count = arg;
@@ -259,6 +268,7 @@ static int count_filters(struct uftrace_session *s, void *arg)
  * @filter_str  - filter symbol names
  * @trigger_str - trigger definitions
  * @caller_str  - caller filter symbol names
+ * @hide_str    - hide filter symbol names
  * @setting     - filter setting
  *
  * This function sets up the symbol filters and triggers using following syntax:
@@ -269,7 +279,7 @@ static int count_filters(struct uftrace_session *s, void *arg)
  */
 static int setup_fstack_filters(struct uftrace_data *handle, char *filter_str,
 				char *trigger_str, char *caller_str,
-				struct uftrace_filter_setting *setting)
+				char *hide_str, struct uftrace_filter_setting *setting)
 {
 	int count = 0;
 	struct uftrace_session_link *sessions = &handle->sessions;
@@ -310,6 +320,17 @@ static int setup_fstack_filters(struct uftrace_data *handle, char *filter_str,
 
 		handle->caller_filter = true;
 		pr_dbg("setup caller filters for %d function(s)\n", count - prev);
+	}
+
+	if (hide_str) {
+		setting->private = hide_str;
+		walk_sessions(sessions, setup_hide, setting);
+		walk_sessions(sessions, count_filters, &count);
+
+		if (count == 0)
+			return -1;
+
+		pr_dbg("setup hide filters for %d function(s)\n", count);
 	}
 
 	return 0;
@@ -418,7 +439,7 @@ void setup_fstack_args(char *argspec, char *retspec,
  */
 int fstack_setup_filters(struct opts *opts, struct uftrace_data *handle)
 {
-	if (opts->filter || opts->trigger || opts->caller) {
+	if (opts->filter || opts->trigger || opts->caller || opts->hide) {
 		struct uftrace_filter_setting setting = {
 			.ptype		= opts->patt_type,
 			.allow_kernel	= true,
@@ -427,13 +448,15 @@ int fstack_setup_filters(struct opts *opts, struct uftrace_data *handle)
 		};
 
 		if (setup_fstack_filters(handle, opts->filter, opts->trigger,
-					 opts->caller, &setting) < 0) {
-			pr_use("failed to set filter or trigger: %s%s%s%s%s\n",
+					 opts->caller, opts->hide, &setting) < 0) {
+			pr_use("failed to set filter or trigger: %s%s%s%s%s%s\n",
 			       opts->filter ?: "",
 			       (opts->filter && opts->trigger) ? " or " : "",
 			       opts->trigger ?: "",
 			       ((opts->filter || opts->trigger) && opts->caller) ? " or " : "",
-			       opts->caller ?: "");
+			       opts->caller ?: "",
+			       (((opts->filter || opts->trigger) && opts->caller) && opts->hide) ? " or " : "",
+			       opts->hide ?: "");
 		}
 	}
 
@@ -593,7 +616,7 @@ int fstack_entry(struct uftrace_task_reader *task,
 		return -1;
 	}
 
-	if (task->filter.depth <= 0) {
+	if (task->filter.depth <= 0 || tr->flags & TRIGGER_FL_HIDE) {
 		fstack->flags |= FSTACK_FL_NORECORD;
 		return -1;
 	}

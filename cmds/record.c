@@ -73,7 +73,8 @@ static bool can_use_fast_libmcount(struct opts *opts)
 	    getenv("UFTRACE_ARGUMENT")  || getenv("UFTRACE_RETVAL") ||
 	    getenv("UFTRACE_PATCH")     || getenv("UFTRACE_SCRIPT") ||
 	    getenv("UFTRACE_AUTO_ARGS") || getenv("UFTRACE_WATCH") ||
-	    getenv("UFTRACE_CALLER")    || getenv("UFTRACE_SIGNAL"))
+	    getenv("UFTRACE_CALLER")    || getenv("UFTRACE_SIGNAL") ||
+	    getenv("UFTRACE_HIDE"))
 		return false;
 	return true;
 }
@@ -255,6 +256,15 @@ static void setup_child_environ(struct opts *opts, int argc, char *argv[])
 		if (caller_str) {
 			setenv("UFTRACE_CALLER", caller_str, 1);
 			free(caller_str);
+		}
+	}
+
+	if (opts->hide) {
+		char *hide_str = uftrace_clear_kernel(opts->hide);
+
+		if (hide_str) {
+			setenv("UFTRACE_HIDE", hide_str, 1);
+			free(hide_str);
 		}
 	}
 

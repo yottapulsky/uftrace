@@ -380,6 +380,7 @@ static void mcount_filter_init(enum uftrace_pattern_type ptype, char *dirname,
 	char *retval_str    = getenv("UFTRACE_RETVAL");
 	char *autoargs_str  = getenv("UFTRACE_AUTO_ARGS");
 	char *caller_str    = getenv("UFTRACE_CALLER");
+	char *hide_str      = getenv("UFTRACE_HIDE");
 
 	struct uftrace_filter_setting filter_setting = {
 		.ptype		= ptype,
@@ -429,6 +430,8 @@ static void mcount_filter_init(enum uftrace_pattern_type ptype, char *dirname,
 					 TRIGGER_FL_CALLER) != 0)
 			mcount_has_caller = true;
 	}
+	uftrace_setup_hide_filter(hide_str, &symtabs, &mcount_triggers,
+				  &filter_setting);
 
 	if (autoargs_str) {
 		char *autoarg = ".";
@@ -966,7 +969,7 @@ void mcount_entry_filter_record(struct mcount_thread_data *mtdp,
 
 #define FLAGS_TO_CHECK  (TRIGGER_FL_FILTER | TRIGGER_FL_RETVAL |	\
 			 TRIGGER_FL_TRACE | TRIGGER_FL_FINISH |		\
-			 TRIGGER_FL_CALLER)
+			 TRIGGER_FL_CALLER | TRIGGER_FL_HIDE)
 
 	if (tr->flags & FLAGS_TO_CHECK) {
 		if (tr->flags & TRIGGER_FL_FILTER) {
@@ -987,6 +990,9 @@ void mcount_entry_filter_record(struct mcount_thread_data *mtdp,
 
 		if (tr->flags & TRIGGER_FL_CALLER)
 			rstack->flags |= MCOUNT_FL_CALLER;
+
+		if (tr->flags & TRIGGER_FL_HIDE)
+			rstack->flags |= MCOUNT_FL_NORECORD;
 
 		if (tr->flags & TRIGGER_FL_FINISH) {
 			record_trace_data(mtdp, rstack, NULL);

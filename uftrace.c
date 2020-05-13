@@ -99,6 +99,7 @@ enum options {
 	OPT_no_event,
 	OPT_signal,
 	OPT_srcline,
+	OPT_hide,
 	OPT_usage,
 };
 
@@ -142,6 +143,7 @@ __used static const char uftrace_help[] =
 "  -f, --output-fields=FIELD  Show FIELDs in the replay or graph output\n"
 "  -F, --filter=FUNC          Only trace those FUNCs\n"
 "      --graphviz             Dump recorded data in DOT format\n"
+"      --hide=FUNC            Hide FUNCs from trace\n"
 "  -H, --host=HOST            Send trace data to HOST instead of write to file\n"
 "  -k, --kernel               Trace kernel functions also (if supported)\n"
 "      --keep-pid             Keep same pid during execution of traced program\n"
@@ -291,6 +293,7 @@ static const struct option uftrace_options[] = {
 	REQ_ARG(watch, 'W'),
 	REQ_ARG(signal, OPT_signal),
 	NO_ARG(srcline, OPT_srcline),
+	REQ_ARG(hide, OPT_hide),
 	NO_ARG(help, 'h'),
 	NO_ARG(usage, OPT_usage),
 	NO_ARG(version, 'V'),
@@ -919,6 +922,10 @@ static int parse_option(struct opts *opts, int key, char *arg)
 
 	case OPT_srcline:
 		opts->srcline = true;
+		break;
+
+	case OPT_hide:
+		opts->hide = opt_add_string(opts->hide, arg);
 		break;
 
 	default:
