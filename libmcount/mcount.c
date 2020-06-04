@@ -1229,12 +1229,26 @@ void mcount_rstack_inject_return(struct mcount_thread_data *mtdp,
 	uint64_t estimated_ret_time = 0;
 
 	if (mtdp->idx > 0) {
+		int idx = mtdp->idx - 1;
+		uint64_t start_time = mtdp->rstack[idx].start_time;
+
+		while (start_time == 0 && --idx >= 0)
+			start_time = mtdp->rstack[idx].start_time;
+
+		if (mtdp->rstack[mtdp->idx-1].start_time == 0) {
+			for (int i = idx; i < mtdp->idx; i++)
+				pr_dbg("rstack[%d], addr = %d, fp = %p\n",
+				       i, mtdp->rstack[i].child_ip, mtdp->rstack[i].parent_loc);
+			pr_err("start time is zero at idx=%d, found=%d\n",
+			       mtdp->idx-1, idx);
+		}
+
 		/*
 		 * NOTE: we don't know the exact return time.
 		 * estimate it as a half of delta from the previous start.
 		 */
 		estimated_ret_time  = mcount_gettime();
-		estimated_ret_time += mtdp->rstack[mtdp->idx-1].start_time;
+		estimated_ret_time += start_time;
 		estimated_ret_time /= 2;
 
 		idx = mtdp->idx - 1;
