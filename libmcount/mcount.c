@@ -1217,8 +1217,14 @@ mcount_arch_parent_location(struct symtabs *symtabs, unsigned long *parent_loc,
 }
 #endif
 
+bool within_same_module(unsigned long addr1, unsigned long addr2)
+{
+	return find_map(&symtabs, addr1) == find_map(&symtabs, addr2);
+}
+
 void mcount_rstack_inject_return(struct mcount_thread_data *mtdp,
-				 unsigned long *frame_pointer)
+				 unsigned long *frame_pointer,
+				 unsigned long addr)
 {
 	uint64_t estimated_ret_time = 0;
 
@@ -1230,6 +1236,25 @@ void mcount_rstack_inject_return(struct mcount_thread_data *mtdp,
 		estimated_ret_time  = mcount_gettime();
 		estimated_ret_time += mtdp->rstack[mtdp->idx-1].start_time;
 		estimated_ret_time /= 2;
+
+		idx = mtdp->idx - 1;
+		/*
+		 * if previous symbol is a PLT function, and this one came
+		 * from same module, we assume these two are siblings and
+		 * use same depth even if it has a lower frame pointer.
+		 */
+		if (mtdp->rstack[idx].dyn_idx != MCOUNT_INVALID_DYNIDX &&
+		    mtdp->rstack[idx].parent_loc > frame_pointer &&
+		    within_same_module(mtdp->rstack[idx].child_ip, addr)) {
+			/* add a fake exit record for the PLT func */
+			mtdp->rstack[idx].end_time = estimated_ret_time;
+			mcount_exit_filter_record(mtdp, &mtdp->rstack[idx],
+						  NULL);
+			/* make it have a same depth */
+			mtdp->idx--;
+			mtdp->record_idx = mtdp->idx;
+			return;
+		}
 	}
 
 	while (mtdp->idx > 0) {
@@ -1296,7 +1321,7 @@ static int __mcount_entry(unsigned long *parent_loc, unsigned long child,
 	parent_loc = mcount_arch_parent_location(&symtabs, parent_loc, child);
 
 	if (mcount_estimate_return)
-		mcount_rstack_inject_return(mtdp, parent_loc);
+		mcount_rstack_inject_return(mtdp, parent_loc, child);
 
 	rstack = &mtdp->rstack[mtdp->idx++];
 
@@ -1432,7 +1457,7 @@ static int __cygprof_entry(unsigned long parent, unsigned long child)
 	}
 
 	if (mcount_estimate_return)
-		mcount_rstack_inject_return(mtdp, (void *)~0UL);
+		mcount_rstack_inject_return(mtdp, (void *)~0UL, child);
 
 	/*
 	 * recording arguments and return value is not supported.
@@ -1564,6 +1589,9 @@ static void _xray_entry(unsigned long parent, unsigned long child,
 		mcount_rstack_reset_exception(mtdp, frame_addr);
 		mtdp->in_exception = false;
 	}
+
+	if (mcount_estimate_return)
+		mcount_rstack_inject_return(mtdp, (void *)~0UL, child);
 
 	/* 'recover' trigger is only for -pg entry */
 	tr.flags &= ~TRIGGER_FL_RECOVER;
