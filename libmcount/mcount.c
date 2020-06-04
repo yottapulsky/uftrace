@@ -1238,15 +1238,31 @@ void mcount_rstack_inject_return(struct mcount_thread_data *mtdp,
 
 	if (mtdp->idx > 0) {
 		int idx = mtdp->idx - 1;
+		uint64_t start_time = mtdp->rstack[idx].start_time;
+
+		while (start_time == 0 && --idx >= 0)
+			start_time = mtdp->rstack[idx].start_time;
+
+		if (mtdp->rstack[mtdp->idx-1].start_time == 0) {
+			for (int i = idx; i < mtdp->idx; i++) {
+				pr_dbg("rstack[%d] addr=%lx, fp=%p, flags=%lx\n",
+				       i, mtdp->rstack[i].child_ip,
+				       mtdp->rstack[i].parent_loc,
+				       mtdp->rstack[i].flags);
+			}
+			pr_err_ns("start time is zero at idx=%d, found=%d\n",
+				  mtdp->idx-1, idx);
+		}
 
 		/*
 		 * NOTE: we don't know the exact return time.
 		 * estimate it as a half of delta from the previous start.
 		 */
 		estimated_ret_time  = mcount_gettime();
-		estimated_ret_time += mtdp->rstack[idx].start_time;
+		estimated_ret_time += start_time;
 		estimated_ret_time /= 2;
 
+		idx = mtdp->idx - 1;
 		/*
 		 * if previous symbol is a PLT function, and this one came
 		 * from same module, we assume these two are siblings and
