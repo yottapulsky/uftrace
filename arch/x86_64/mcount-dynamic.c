@@ -464,13 +464,14 @@ static int patch_normal_func(struct mcount_dynamic_info *mdi, struct sym *sym,
 		.addr = mdi->map->start + sym->addr,
 	};
 	int state;
+	static int idx;
 
 	state = disasm_check_insns(disasm, mdi, &info);
 	if (state != INSTRUMENT_SUCCESS)
 		return state;
 
-	pr_dbg2("patch normal func: %s (patch size: %d)\n",
-		sym->name, info.orig_size);
+	pr_dbg2("[%d] patch normal func: %s (addr: %lx, patch size: %d)\n",
+		++idx, sym->name, info.addr, info.orig_size);
 
 	/*
 	 *  stored origin instruction block:
