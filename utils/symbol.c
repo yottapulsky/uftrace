@@ -1528,6 +1528,67 @@ uint64_t guess_kernel_base(char *str)
 		return 0xFFFF000000000000ULL;
 }
 
+int read_build_id(const char *filename, char *buf, int len)
+{
+	struct uftrace_elf_data elf;
+	struct uftrace_elf_iter iter;
+	unsigned char build_id[BUILD_ID_SIZE];
+	bool found_build_id = false;
+	int offset;
+
+	memset(buf, 0, len);
+
+	if (len < BUILD_ID_STR_SIZE)
+		return -1;
+
+	if (elf_init(filename, &elf) < 0)
+		return -1;
+
+	elf_for_each_shdr(&elf, &iter) {
+		char *str;
+
+		if (iter.shdr.sh_type != SHT_NOTE)
+			continue;
+
+		/* there can be more than one note sections */
+		str = elf_get_name(&elf, &iter, iter.shdr.sh_name);
+		if (!strcmp(str, ".note.gnu.build-id")) {
+			found_build_id = true;
+			break;
+		}
+	}
+
+	if (!found_build_id) {
+		pr_dbg2("cannot find build-id section in %s\n", filename);
+		elf_finish(&elf);
+		return -1;
+	}
+
+	found_build_id = false;
+	elf_for_each_note(&elf, &iter) {
+		if (iter.nhdr.n_type != NT_GNU_BUILD_ID)
+			continue;
+		if (!strcmp(iter.note_name, "GNU")) {
+			memcpy(build_id, iter.note_desc, BUILD_ID_SIZE);
+			found_build_id = true;
+			break;
+		}
+	}
+	elf_finish(&elf);
+
+	if (!found_build_id) {
+		pr_dbg2("cannot find GNU build-id note in %s\n", filename);
+		return -1;
+	}
+
+	for (offset = 0; offset < BUILD_ID_SIZE; offset++) {
+		unsigned char c = build_id[offset];
+		snprintf(buf + offset*2, len - offset*2, "%02x", c);
+	}
+	buf[BUILD_ID_STR_SIZE - 1] = '\0';
+	return 0;
+}
+
 #ifdef UNIT_TEST
 
 TEST_CASE(symbol_load_module) {
