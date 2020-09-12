@@ -32,6 +32,7 @@ void read_session_map(char *dirname, struct symtabs *symtabs, char *sid)
 	const char *last_libname = NULL;
 	struct uftrace_mmap **maps = &symtabs->maps;
 	struct uftrace_mmap *last_map = NULL;
+	const char build_id_prefix[] = "build-id:";
 
 	snprintf(buf, sizeof(buf), "%s/sid-%.16s.map", dirname, sid);
 	fp = fopen(buf, "rb");
@@ -42,13 +43,16 @@ void read_session_map(char *dirname, struct symtabs *symtabs, char *sid)
 		uint64_t start, end;
 		char prot[5];
 		char path[PATH_MAX];
+		char build_id[BUILD_ID_STR_SIZE + sizeof(build_id_prefix)];
 		size_t namelen;
 		struct uftrace_mmap *map;
 
 		/* skip anon mappings */
-		if (sscanf(buf, "%"PRIx64"-%"PRIx64" %s %*x %*x:%*x %*d %s\n",
-			   &start, &end, prot, path) != 4)
+		if (sscanf(buf, "%"PRIx64"-%"PRIx64" %s %*x %*x:%*x %*d %s %s",
+			   &start, &end, prot, path, build_id) < 4) {
+			pr_dbg("sscanf failed\n");
 			continue;
+		}
 
 		/* skip the [stack] mapping */
 		if (path[0] == '[') {
@@ -75,6 +79,11 @@ void read_session_map(char *dirname, struct symtabs *symtabs, char *sid)
 		memcpy(map->prot, prot, 4);
 		memcpy(map->libname, path, namelen);
 		map->libname[strlen(path)] = '\0';
+
+		if (!strncmp(build_id, build_id_prefix, strlen(build_id_prefix))) {
+			memcpy(map->build_id, build_id + strlen(build_id_prefix),
+			       sizeof(build_id) - sizeof(build_id_prefix));
+		}
 
 		/* set mapping of main executable */
 		if (symtabs->exec_map == NULL && symtabs->filename &&
@@ -111,6 +120,62 @@ void delete_session_map(struct symtabs *symtabs)
 
 	symtabs->maps = NULL;
 	symtabs->exec_map = NULL;
+}
+
+/**
+ * update_session_maps - rewrite map files to have build-id
+ * @filename - name of map file
+ *
+ * This function updates @filename map file to add build-id at the end
+ * of each line.
+ */
+void update_session_map(const char *filename)
+{
+	FILE *ifp, *ofp;
+	char buf[PATH_MAX];
+	const char build_id_prefix[] = "build-id:";
+
+	ifp = fopen(filename, "r");
+	if (ifp == NULL)
+		pr_err("cannot open map file: %s", filename);
+
+	snprintf(buf, sizeof(buf), "%s.tmp", filename);
+	ofp = fopen(buf, "w");
+	if (ofp == NULL)
+		pr_err("cannot create new map file: %s", buf);
+
+
+	while (fgets(buf, sizeof(buf), ifp) != NULL) {
+		char path[PATH_MAX];
+		char build_id[BUILD_ID_STR_SIZE];
+		int len;
+
+		len = strlen(buf);
+		if (len > 0 && buf[len - 1] == '\n')
+			buf[--len] = '\0';
+		fwrite_all(buf, len, ofp);
+
+		/* skip anon mappings */
+		if (sscanf(buf, "%*x-%*x %*s %*x %*x:%*x %*d %s", path) != 1)
+			goto next;
+
+		/* skip the special mappings like [stack] */
+		if (path[0] == '[')
+			goto next;
+
+		if (read_build_id(path, build_id, sizeof(build_id)) == 0)
+			fprintf(ofp, " %s%s", build_id_prefix, build_id);
+
+next:
+		fputc('\n', ofp);
+	}
+
+	fclose(ifp);
+	fclose(ofp);
+
+	snprintf(buf, sizeof(buf), "%s.tmp", filename);
+	if (rename(buf, filename) < 0)
+		pr_err("cannot rename map file: %s", filename);
 }
 
 /**
