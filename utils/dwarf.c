@@ -1393,8 +1393,8 @@ void save_debug_file(FILE *fp, char code, char *str, unsigned long val)
 	}
 }
 
-static void save_debug_entries(struct debug_info *dinfo,
-			       char *dirname, const char *filename)
+static void save_debug_entries(struct debug_info *dinfo, char *dirname,
+			       const char *filename, char *build_id)
 {
 	int i;
 	FILE *fp;
@@ -1404,6 +1404,10 @@ static void save_debug_entries(struct debug_info *dinfo,
 	fp = create_debug_file(dirname, basename(filename));
 	if (fp == NULL)
 		return;  /* somebody already did that! */
+
+	fprintf(fp, "# path name: %s\n", filename);
+	if (strlen(build_id) > 0)
+		fprintf(fp, "# build-id: %s\n", build_id);
 
 	save_enum_def(&dinfo->enums, fp);
 
@@ -1448,13 +1452,43 @@ void save_debug_info(struct symtabs *symtabs, char *dirname)
 		if (map->mod == NULL)
 			continue;
 
-		save_debug_entries(&map->mod->dinfo, dirname, map->libname);
+		save_debug_entries(&map->mod->dinfo, dirname, map->libname,
+				   map->build_id);
 	}
+}
+
+static bool match_debug_file(const char *dbgname, const char *pathname,
+			     const char *build_id)
+{
+	FILE *fp;
+	bool ret = true;
+	char *line = NULL;
+	size_t len = 0;
+
+	fp = fopen(dbgname, "r");
+	if (fp == NULL)
+		return false;
+
+	while (getline(&line, &len, fp) >= 0) {
+		if (line[0] != '#')
+			break;
+
+		/* remove trailing newline */
+		line[strlen(line) - 1] = '\0';
+
+		if (!strncmp(line, "# path name: ", 13))
+			ret = !strcmp(line + 13, pathname);
+		if (!strncmp(line, "# build-id: ", 12))
+			ret = !strcmp(line + 12, build_id);
+	}
+	free(line);
+	fclose(fp);
+	return ret;
 }
 
 static int load_debug_file(struct debug_info *dinfo, struct symtab *symtab,
 			   const char *dirname, const char *filename,
-			   bool needs_srcline)
+			   char *build_id, bool needs_srcline)
 {
 	char *pathname;
 	FILE *fp;
@@ -1465,6 +1499,20 @@ static int load_debug_file(struct debug_info *dinfo, struct symtab *symtab,
 	uint64_t offset = 0;
 
 	xasprintf(&pathname, "%s/%s.dbg", dirname, basename(filename));
+
+	if (!match_debug_file(pathname, filename, build_id)) {
+		char *newfile;
+
+		newfile = make_new_symbol_filename(pathname, filename, build_id);
+		len = strlen(newfile);
+		strcpy(newfile + len - 3, "dbg");
+		pr_dbg("using new debug file: %s\n", newfile);
+
+		/* replace pathname */
+		free(pathname);
+		pathname = newfile;
+		len = 0;
+	}
 
 	fp = fopen(pathname, "r");
 	if (fp == NULL) {
@@ -1494,6 +1542,10 @@ static int load_debug_file(struct debug_info *dinfo, struct symtab *symtab,
 		struct sym *sym;
 		ptrdiff_t sym_idx;
 		unsigned long lineno;
+
+		if (line[0] == '#') {
+			continue;
+		}
 
 		if (line[1] != ':' || line[2] != ' ')
 			goto out;
@@ -1575,7 +1627,8 @@ void load_debug_info(struct symtabs *symtabs, bool needs_srcline)
 
 		if (!debug_info_has_location(dinfo) && !debug_info_has_argspec(dinfo)) {
 			load_debug_file(dinfo, stab, symtabs->dirname,
-					map->libname, needs_srcline);
+					map->libname, map->build_id,
+					needs_srcline);
 		}
 	}
 
