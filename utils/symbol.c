@@ -996,12 +996,23 @@ static void load_module_symbol(struct symtabs *symtabs, struct uftrace_module *m
 
 	if (flags & SYMTAB_FL_USE_SYMFILE) {
 		char *symfile = NULL;
+		char buf[PATH_MAX];
+		char build_id[BUILD_ID_STR_SIZE];
 
 		xasprintf(&symfile, "%s/%s.sym",
 			  symtabs->dirname, basename(m->name));
 		if (access(symfile, F_OK) == 0) {
-			load_module_symbol_file(&m->symtab, symfile, 0);
+			if (check_symbol_file(symfile, buf, sizeof(buf),
+					      build_id, sizeof(build_id)) > 0 &&
+			    (strcmp(buf, m->name) || strcmp(build_id, m->build_id))) {
+				free(symfile);
+				symfile = make_new_symbol_filename(symfile,
+								   m->name,
+								   m->build_id);
+			}
 		}
+		if (access(symfile, F_OK) == 0)
+			load_module_symbol_file(&m->symtab, symfile, 0);
 
 		free(symfile);
 
@@ -1022,7 +1033,8 @@ static void load_module_symbol(struct symtabs *symtabs, struct uftrace_module *m
 }
 
 struct uftrace_module * load_module_symtab(struct symtabs *symtabs,
-					   const char *mod_name)
+					   const char *mod_name,
+					   char *build_id)
 {
 	struct rb_node *parent = NULL;
 	struct rb_node **p = &modules.rb_node;
@@ -1034,8 +1046,11 @@ struct uftrace_module * load_module_symtab(struct symtabs *symtabs,
 		m = rb_entry(parent, struct uftrace_module, node);
 
 		pos = strcmp(m->name, mod_name);
-		if (pos == 0)
-			return m;
+		if (pos == 0) {
+			pos = strcmp(m->build_id, build_id);
+			if (pos == 0)
+				return m;
+		}
 
 		if (pos < 0)
 			p = &parent->rb_left;
@@ -1045,6 +1060,7 @@ struct uftrace_module * load_module_symtab(struct symtabs *symtabs,
 
 	m = xzalloc(sizeof(*m) + strlen(mod_name) + 1);
 	strcpy(m->name, mod_name);
+	strcpy(m->build_id, build_id);
 	load_module_symbol(symtabs, m);
 
 	rb_link_node(&m->node, parent, p);
@@ -1121,7 +1137,8 @@ void load_module_symtabs(struct symtabs *symtabs)
 				continue;
 		}
 
-		map->mod = load_module_symtab(symtabs, map->libname);
+		map->mod = load_module_symtab(symtabs, map->libname,
+					      map->build_id);
 	}
 }
 
@@ -1459,7 +1476,8 @@ struct sym * find_symtabs(struct symtabs *symtabs, uint64_t addr)
 
 	if (map != NULL) {
 		if (map->mod == NULL) {
-			map->mod = load_module_symtab(symtabs, map->libname);
+			map->mod = load_module_symtab(symtabs, map->libname,
+						      map->build_id);
 			if (map->mod == NULL)
 				return NULL;
 		}
