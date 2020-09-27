@@ -140,6 +140,35 @@ struct uftrace_arg_spec * parse_argspec(char *str,
 		pr_dbg2("parsing argspec for enum: %s\n", arg->enum_str);
 		suffix += strlen(arg->enum_str) + 2;
 		goto type;
+	case 't':
+		/* struct/union/class passed-by-value */
+		fmt = ARG_FMT_STRUCT;
+		size = strtol(&suffix[1], &suffix, 0);
+		arg->struct_reg_cnt = 0;
+
+		if (*suffix == '%') {
+			if (!strncmp(suffix, "%stack+", 7))
+				goto type;
+
+			do {
+				short reg;
+				char *next = strchr(suffix, '+');
+
+				if (next)
+					*next = '\0';
+
+				reg = arch_register_number(setting->arch, ++suffix);
+				if (reg >= 0)
+					arg->struct_regs[arg->struct_reg_cnt++] = reg;
+
+				suffix = next;
+			}
+			while (suffix);
+
+			if (arg->struct_reg_cnt)
+				type = ARG_TYPE_REG;
+		}
+		goto out;
 	default:
 		if (fmt == ARG_FMT_FLOAT && isdigit(*suffix))
 			goto size;
@@ -207,6 +236,7 @@ out:
 	return arg;
 
 err:
+	pr_dbg("argspec parse failed: %s\n", str);
 	free(arg);
 	return NULL;
 }
