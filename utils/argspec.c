@@ -139,6 +139,26 @@ struct uftrace_arg_spec * parse_argspec(char *str,
 			*p = '\0';
 		pr_dbg2("parsing argspec for enum: %s\n", arg->enum_str);
 		goto out;
+	case 't':
+		/* struct/union/class passed-by-value */
+		fmt = ARG_FMT_STRUCT;
+		size = strtol(&suffix[1], &suffix, 0);
+		arg->struct_reg_cnt = 0;
+
+		if (*suffix == ':') {
+			suffix++;
+			/* it can pass some fields in registers */
+			while (*suffix == 'i' || *suffix == 'f') {
+				arg->reg_types[arg->struct_reg_cnt++] = *suffix++;
+				if (arg->struct_reg_cnt == sizeof(arg->reg_types))
+					break;
+			}
+		}
+		if (*suffix != '\0') {
+			pr_use("invalid struct spec: %s\n", str);
+			goto err;
+		}
+		goto out;
 	default:
 		if (fmt == ARG_FMT_FLOAT && isdigit(*suffix))
 			goto size;
