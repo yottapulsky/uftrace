@@ -113,7 +113,7 @@ next:
 		while (!list_empty(&args)) {
 			arg = list_first_entry(&args, struct uftrace_arg_spec, list);
 			list_del(&arg->list);
-			free_arg_spec(arg);
+			free_arg_spec(arg, false);
 		}
 	}
 	strv_free(&specs);
@@ -262,7 +262,7 @@ static void release_auto_args(struct rb_root *root)
 
 		list_for_each_entry_safe(arg, tmp, &entry->args, list) {
 			list_del(&arg->list);
-			free_arg_spec(arg);
+			free_arg_spec(arg, false);
 		}
 
 		free(entry->name);
@@ -287,7 +287,7 @@ void finish_auto_args(void)
 			spec = list_first_entry(dwarf_argspec_list->trigger.pargs,
 						typeof(*spec), list);
 			list_del(&spec->list);
-			free_arg_spec(spec);
+			free_arg_spec(spec, false);
 		}
 		free(dwarf_argspec_list);
 

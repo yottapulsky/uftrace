@@ -66,7 +66,7 @@ void setup_auto_args_str(char *args, char *rets, char *enums,
 			 struct uftrace_filter_setting *setting);
 void finish_auto_args(void);
 
-void free_arg_spec(struct uftrace_arg_spec *arg);
+void free_arg_spec(struct uftrace_arg_spec *arg, bool arranged);
 
 struct debug_info;
 struct uftrace_filter;

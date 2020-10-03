@@ -408,8 +408,8 @@ void delete_session(struct uftrace_session *sess)
 
 	finish_debug_info(&sess->symtabs);
 	delete_session_map(&sess->symtabs);
-	uftrace_cleanup_filter(&sess->filters);
-	uftrace_cleanup_filter(&sess->fixups);
+	uftrace_cleanup_filter(&sess->filters, false);
+	uftrace_cleanup_filter(&sess->fixups, false);
 	free(sess);
 }
 

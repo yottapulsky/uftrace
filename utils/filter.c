@@ -219,10 +219,12 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 	}
 }
 
-void free_arg_spec(struct uftrace_arg_spec *arg)
+void free_arg_spec(struct uftrace_arg_spec *arg, bool arranged)
 {
 	if (arg->fmt == ARG_FMT_ENUM)
 		free(arg->enum_str);
+	if (arg->fmt == ARG_FMT_STRUCT && arranged)
+		free(arg->struct_regs);
 	free(arg);
 }
 
@@ -835,7 +837,7 @@ next:
 		while (!list_empty(&args)) {
 			arg = list_first_entry(&args, typeof(*arg), list);
 			list_del(&arg->list);
-			free_arg_spec(arg);
+			free_arg_spec(arg, false);
 		}
 
 	}
@@ -945,7 +947,7 @@ void uftrace_cleanup_filter(struct rb_root *root)
 
 		list_for_each_entry_safe(arg, tmp, &filter->args, list) {
 			list_del(&arg->list);
-			free_arg_spec(arg);
+			free_arg_spec(arg, arranged);
 		}
 		free(filter);
 	}
@@ -1053,7 +1055,7 @@ TEST_CASE(filter_setup_simple)
 	TEST_EQ(filter->start, 0x2000UL);
 	TEST_EQ(filter->end, 0x2000UL + 0x1000UL);
 
-	uftrace_cleanup_filter(&root);
+	uftrace_cleanup_filter(&root, false);
 	TEST_EQ(RB_EMPTY_ROOT(&root), true);
 
 	pr_dbg("checking destructor match\n");
@@ -1066,7 +1068,7 @@ TEST_CASE(filter_setup_simple)
 	TEST_EQ(filter->start, 0x6000UL);
 	TEST_EQ(filter->end, 0x6000UL + 0x1000UL);
 
-	uftrace_cleanup_filter(&root);
+	uftrace_cleanup_filter(&root, false);
 	TEST_EQ(RB_EMPTY_ROOT(&root), true);
 
 	pr_dbg("checking unknown symbol\n");
@@ -1119,7 +1121,7 @@ TEST_CASE(filter_setup_regex)
 	TEST_EQ(filter->end, 0x5000UL + 0x1000UL);
 
 	pr_dbg("found 4 symbols. done\n");
-	uftrace_cleanup_filter(&root);
+	uftrace_cleanup_filter(&root, false);
 	TEST_EQ(RB_EMPTY_ROOT(&root), true);
 
 	return TEST_OK;
@@ -1168,7 +1170,7 @@ TEST_CASE(filter_setup_glob)
 	TEST_EQ(filter->end, 0x5000UL + 0x1000UL);
 
 	pr_dbg("found 4 symbols. done\n");
-	uftrace_cleanup_filter(&root);
+	uftrace_cleanup_filter(&root, false);
 	TEST_EQ(RB_EMPTY_ROOT(&root), true);
 
 	return TEST_OK;
@@ -1213,7 +1215,7 @@ TEST_CASE(filter_setup_notrace)
 	TEST_EQ(filter->trigger.flags, TRIGGER_FL_FILTER);
 	TEST_EQ(filter->trigger.fmode, FILTER_MODE_IN);
 
-	uftrace_cleanup_filter(&root);
+	uftrace_cleanup_filter(&root, false);
 	TEST_EQ(RB_EMPTY_ROOT(&root), true);
 
 	return TEST_OK;
@@ -1258,7 +1260,7 @@ TEST_CASE(filter_match)
 	TEST_EQ(uftrace_match_filter(0x2000, &root, &tr), NULL);
 	TEST_NE(tr.flags, TRIGGER_FL_FILTER);
 
-	uftrace_cleanup_filter(&root);
+	uftrace_cleanup_filter(&root, false);
 	TEST_EQ(RB_EMPTY_ROOT(&root), true);
 
 	return TEST_OK;
@@ -1317,7 +1319,7 @@ TEST_CASE(trigger_setup_actions)
 	TEST_NE(uftrace_match_filter(0x4200, &root, &tr), NULL);
 	TEST_EQ(tr.flags, TRIGGER_FL_CALLER);
 
-	uftrace_cleanup_filter(&root);
+	uftrace_cleanup_filter(&root, false);
 	TEST_EQ(RB_EMPTY_ROOT(&root), true);
 
 	return TEST_OK;
@@ -1375,7 +1377,7 @@ TEST_CASE(trigger_setup_filters)
 	TEST_NE(uftrace_match_filter(0x5000, &root, &tr), NULL);
 	TEST_EQ(tr.flags, TRIGGER_FL_CALLER);
 
-	uftrace_cleanup_filter(&root);
+	uftrace_cleanup_filter(&root, false);
 	TEST_EQ(RB_EMPTY_ROOT(&root), true);
 
 	return TEST_OK;
@@ -1525,7 +1527,7 @@ TEST_CASE(trigger_setup_args)
 	}
 	TEST_EQ(count, 4);
 
-	uftrace_cleanup_filter(&root);
+	uftrace_cleanup_filter(&root, false);
 	TEST_EQ(RB_EMPTY_ROOT(&root), true);
 
 	return TEST_OK;

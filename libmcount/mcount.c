@@ -469,7 +469,7 @@ static void mcount_filter_release(struct mcount_thread_data *mtdp)
 
 static void mcount_filter_finish(void)
 {
-	uftrace_cleanup_filter(&mcount_triggers);
+	uftrace_cleanup_filter(&mcount_triggers, false);
 	finish_auto_args();
 
 	finish_debug_info(&symtabs);
