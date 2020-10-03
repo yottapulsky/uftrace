@@ -237,13 +237,20 @@ static void arrange_struct_args(struct uftrace_arg_spec *arg,
 	int i;
 	short reg;
 	char reg_types[4];
+	int size = arg->size;
 	int orig_int_reg = aa->next_int_reg;
 	int orig_fp_reg = aa->next_fp_reg;
 
+	pr_dbg2("arrange struct argument: count = %d\n", arg->struct_reg_cnt);
 	memcpy(reg_types, arg->reg_types, sizeof(reg_types));
 
-	arg->stack_ofs = 0;
-	arg->struct_regs = xcalloc(arg->struct_reg_cnt, sizeof(*arg->struct_regs));
+	arg->stack_ofs = -1;
+	arg->struct_regs = NULL;
+
+	if (arg->struct_reg_cnt) {
+		arg->struct_regs = xcalloc(arg->struct_reg_cnt,
+					   sizeof(*arg->struct_regs));
+	}
 
 	for (i = 0; i < arg->struct_reg_cnt; i++) {
 		if (reg_types[i] == 'i')
@@ -254,11 +261,7 @@ static void arrange_struct_args(struct uftrace_arg_spec *arg,
 					       aa->next_fp_reg++);
 
 		if (reg < 0) {
-			pr_dbg("struct register allocation failure\n");
-			arg->type = ARG_TYPE_STACK;
-			arg->stack_ofs = aa->next_stack_ofs;
-			aa->next_stack_ofs += DIV_ROUND_UP(arg->size, sizeof(long));
-
+			pr_dbg2("struct register allocation failure\n");
 			free(arg->struct_regs);
 			arg->struct_regs = NULL;
 			arg->struct_reg_cnt = 0;
@@ -266,13 +269,20 @@ static void arrange_struct_args(struct uftrace_arg_spec *arg,
 			/* restore original state */
 			aa->next_int_reg = orig_int_reg;
 			aa->next_fp_reg = orig_fp_reg;
-			return;
+
+			size = arg->size;
+			break;
 		}
 
 		arg->struct_regs[i] = reg;
+		size -= sizeof(long);
 	}
 
-	/* TODO: pass remaining fields via stack (for ARM?) */
+	if (size > 0) {
+		arg->type = ARG_TYPE_STACK;
+		arg->stack_ofs = aa->next_stack_ofs;
+		aa->next_stack_ofs += DIV_ROUND_UP(arg->size, size);
+	}
 }
 
 /*
@@ -281,14 +291,15 @@ static void arrange_struct_args(struct uftrace_arg_spec *arg,
  * arguments given by index to have specific registers or stack offset.
  * It assumes all arguments are specified in the @args
  */
-int reallocate_argspec(struct list_head *args,
-		       struct uftrace_filter_setting *setting)
+void uftrace_arrange_argspec(struct list_head *args,
+			     struct uftrace_filter_setting *setting)
 {
 	struct uftrace_arg_spec *arg;
 	struct uftrace_arg_arranger aa;
 	int reg;
 
 	memset(&aa, 0, sizeof(aa));
+	aa.next_stack_ofs = 1;
 
 	list_for_each_entry(arg, args, list) {
 		/*
@@ -353,5 +364,4 @@ int reallocate_argspec(struct list_head *args,
 			break;
 		}
 	}
-	return 0;
 }

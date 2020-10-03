@@ -198,6 +198,8 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 			oarg->exact = exact_match;
 			oarg->type  = arg->type;
 			oarg->reg_idx = arg->reg_idx;
+			oarg->struct_regs = arg->struct_regs;
+			oarg->struct_reg_cnt = arg->struct_reg_cnt;
 
 			if (arg->fmt == ARG_FMT_ENUM)
 				oarg->enum_str = xstrdup(arg->enum_str);
@@ -211,6 +213,8 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 		narg->exact = exact_match;
 		narg->type  = arg->type;
 		narg->reg_idx = arg->reg_idx;
+		narg->struct_regs = arg->struct_regs;
+		narg->struct_reg_cnt = arg->struct_reg_cnt;
 
 		if (arg->fmt == ARG_FMT_ENUM)
 			narg->enum_str = xstrdup(arg->enum_str);
@@ -274,11 +278,14 @@ static int add_filter(struct rb_root *root, struct uftrace_filter *filter,
 		auto_arg = find_auto_argspec(filter, tr, dinfo, setting);
 		if (auto_arg == NULL)
 			tr->flags &= ~TRIGGER_FL_ARGUMENT;
+		else
+			tr->flags |= TRIGGER_FL_ARG_ARRANGE;
 	}
 	if ((tr->flags & TRIGGER_FL_RETVAL) && list_empty(tr->pargs)) {
 		auto_ret = find_auto_retspec(filter, tr, dinfo, setting);
 		if (auto_ret == NULL)
 			tr->flags &= ~TRIGGER_FL_RETVAL;
+		/* TODO: arrange return value */
 	}
 
 	/* remove unnecessary filters might be set by --auto-args */
@@ -441,6 +448,9 @@ static int parse_argument_spec(char *str, struct uftrace_trigger *tr,
 		return -1;
 
 	tr->flags |= TRIGGER_FL_ARGUMENT;
+	if (arg->fmt == ARG_FMT_STRUCT)
+		tr->flags |= TRIGGER_FL_ARG_ARRANGE;
+
 	list_add_tail(&arg->list, tr->pargs);
 
 	return 0;
@@ -930,10 +940,29 @@ void uftrace_setup_caller_filter(char *filter_str, struct symtabs *symtabs,
 }
 
 /**
+ * uftrace_arrange_argument - assign struct arguments to register/stack
+ * @root - root of argspec tree
+ */
+void uftrace_arrange_argument(struct rb_root *root,
+			      struct uftrace_filter_setting *setting)
+{
+	struct rb_node *node = rb_first(root);
+	struct uftrace_filter *filter;
+
+	while (node) {
+		filter = rb_entry(node, struct uftrace_filter, node);
+		if (filter->trigger.flags & TRIGGER_FL_ARG_ARRANGE)
+			uftrace_arrange_argspec(&filter->args, setting);
+		node = rb_next(node);
+	}
+}
+
+/**
  * uftrace_cleanup_filter - delete filters in rbtree
  * @root - root of the filter rbtree
+ * @arranged - whether argspec is arranged (for struct)
  */
-void uftrace_cleanup_filter(struct rb_root *root)
+void uftrace_cleanup_filter(struct rb_root *root, bool arranged)
 {
 	struct rb_node *node;
 	struct uftrace_filter *filter;

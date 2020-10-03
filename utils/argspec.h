@@ -97,4 +97,7 @@ struct uftrace_arg_arranger {
 	int next_stack_ofs;
 };
 
+void uftrace_arrange_argspec(struct list_head *args,
+			     struct uftrace_filter_setting *setting);
+
 #endif  /* UFTRACE_ARGSPEC_H */

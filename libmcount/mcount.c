@@ -444,6 +444,8 @@ static void mcount_filter_init(enum uftrace_pattern_type ptype, char *dirname,
 				     &mcount_triggers, &filter_setting);
 	}
 
+	uftrace_arrange_argument(&mcount_triggers, &filter_setting);
+
 	if (getenv("UFTRACE_DEPTH"))
 		mcount_depth = strtol(getenv("UFTRACE_DEPTH"), NULL, 0);
 
@@ -469,7 +471,7 @@ static void mcount_filter_release(struct mcount_thread_data *mtdp)
 
 static void mcount_filter_finish(void)
 {
-	uftrace_cleanup_filter(&mcount_triggers, false);
+	uftrace_cleanup_filter(&mcount_triggers, true);
 	finish_auto_args();
 
 	finish_debug_info(&symtabs);

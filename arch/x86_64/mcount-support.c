@@ -10,8 +10,8 @@
 #include "utils/filter.h"
 #include "utils/arch.h"
 
-int mcount_get_register_arg(struct mcount_arg_context *ctx,
-			    struct uftrace_arg_spec *spec)
+static int mcount_get_register_arg(struct mcount_arg_context *ctx,
+				   struct uftrace_arg_spec *spec)
 {
 	struct mcount_regs *regs = ctx->regs;
 	int reg_idx;
@@ -81,8 +81,8 @@ int mcount_get_register_arg(struct mcount_arg_context *ctx,
 	return 0;
 }
 
-void mcount_get_stack_arg(struct mcount_arg_context *ctx,
-			  struct uftrace_arg_spec *spec)
+static void mcount_get_stack_arg(struct mcount_arg_context *ctx,
+				 struct uftrace_arg_spec *spec)
 {
 	int offset;
 	unsigned long *addr = ctx->stack_base;
@@ -120,9 +120,43 @@ void mcount_get_stack_arg(struct mcount_arg_context *ctx,
 	}
 }
 
+static void mcount_get_struct_arg(struct mcount_arg_context *ctx,
+				  struct uftrace_arg_spec *spec)
+{
+	struct uftrace_arg_spec reg_spec = {
+		.type = ARG_TYPE_REG,
+	};
+	void *ptr = ctx->val.p;
+	int i;
+
+	for (i = 0; i < spec->struct_reg_cnt; i++) {
+		reg_spec.reg_idx = spec->struct_regs[i];
+
+		mcount_get_register_arg(ctx, &reg_spec);
+		memcpy(ptr, ctx->val.v, sizeof(long));
+		ptr += sizeof(long);
+	}
+
+	if (spec->stack_ofs >= 0) {
+		unsigned long *addr = ctx->stack_base + spec->stack_ofs;
+
+		if (check_mem_region(ctx, (unsigned long)addr))
+			memcpy(ptr, addr, spec->size);
+		else {
+			pr_dbg("stack address is not allowed: %p\n", addr);
+			memset(ptr, 0, spec->size);
+		}
+	}
+}
+
 void mcount_arch_get_arg(struct mcount_arg_context *ctx,
 			 struct uftrace_arg_spec *spec)
 {
+	if (spec->fmt == ARG_FMT_STRUCT) {
+		mcount_get_struct_arg(ctx, spec);
+		return;
+	}
+
 	if (mcount_get_register_arg(ctx, spec) < 0)
 		mcount_get_stack_arg(ctx, spec);
 }
