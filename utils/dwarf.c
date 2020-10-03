@@ -313,6 +313,8 @@ struct type_data {
 	int				pointer;
 	bool				ignore;
 	bool				broken;
+	char				struct_regs[5];
+	int				reg_cnt;
 	char				*enum_name;
 	struct debug_info		*dinfo;
 };
@@ -375,7 +377,11 @@ static char * make_enum_name(Dwarf_Die *die)
 /* returns size in bit */
 static size_t type_size(Dwarf_Die *die, size_t default_size)
 {
-	int size;
+	Dwarf_Word size;
+
+	/* require >= elfutils 0.144 */
+	if (dwarf_aggregate_size(die, &size) >= 0)
+		return size * 8;
 
 	/* just guess it's word size */
 	size = dwarf_bytesize(die);
@@ -429,6 +435,171 @@ retry:
 	}
 
 	return true;
+}
+
+enum {
+	PARAM_CLASS_NONE = 0,
+	PARAM_CLASS_MEM,
+	PARAM_CLASS_INT,
+	PARAM_CLASS_FP,
+};
+
+struct param_data {
+	int pos;
+	int reg_cnt;
+	int reg_max;
+	bool fpregs_only;
+	char *regs;
+	int prev_class;
+};
+
+/* 0 = mem, 1 = int, 2 = fp, 3 = struct */
+static int get_param_class(Dwarf_Die *die, struct param_data *pd)
+{
+	Dwarf_Die ref;
+	Dwarf_Attribute type;
+	unsigned aform;
+	const char *tname;
+	int size;
+	int this_class;
+
+	while (dwarf_hasattr(die, DW_AT_type)) {
+		dwarf_attr(die, DW_AT_type, &type);
+		aform = dwarf_whatform(&type);
+
+		switch (aform) {
+		case DW_FORM_ref1:
+		case DW_FORM_ref2:
+		case DW_FORM_ref4:
+		case DW_FORM_ref8:
+		case DW_FORM_ref_udata:
+		case DW_FORM_ref_addr:
+		case DW_FORM_ref_sig8:
+			dwarf_formref_die(&type, &ref);
+			die = &ref;
+			break;
+		default:
+			pr_dbg2("unhandled type form: %u\n", aform);
+			return PARAM_CLASS_MEM;
+		}
+
+		switch (dwarf_tag(die)) {
+		case DW_TAG_pointer_type:
+		case DW_TAG_ptr_to_member_type:
+		case DW_TAG_reference_type:
+		case DW_TAG_rvalue_reference_type:
+			/* align start address (TODO: handle packed struct) */
+			if (pd->pos % sizeof(long))
+				pd->reg_cnt++;
+			pd->pos = ROUND_UP(pd->pos, sizeof(long));
+
+			if (pd->reg_cnt >= pd->reg_max)
+				return PARAM_CLASS_MEM;
+
+			pd->pos += sizeof(long);
+			pd->regs[pd->reg_cnt++] = 'i';
+			return PARAM_CLASS_INT;
+
+		case DW_TAG_structure_type:
+		case DW_TAG_union_type:
+		case DW_TAG_class_type:
+			/* TODO */
+			return PARAM_CLASS_MEM;
+
+		case DW_TAG_array_type:
+			/* TODO */
+			break;
+
+		case DW_TAG_enumeration_type:
+			return PARAM_CLASS_INT;
+
+		case DW_TAG_base_type:
+			tname = dwarf_diename(die);
+
+			size = type_size(die, sizeof(int)) / 8;
+			/* align start address (TODO: handle packed struct) */
+			if (pd->pos % size) {
+				if ((pd->pos % sizeof(long)) + size >= sizeof(long)) {
+					pd->reg_cnt++;
+					pd->prev_class = ' ';
+				}
+			}
+			pd->pos = ROUND_UP(pd->pos, size);
+
+			if (pd->reg_cnt >= pd->reg_max)
+				return PARAM_CLASS_MEM;
+
+			if (!strcmp(tname, "double")) {
+				pd->regs[pd->reg_cnt++] = 'f';
+				pd->pos += sizeof(double);
+				pd->prev_class = ' ';
+				return PARAM_CLASS_FP;
+			}
+			else if (!strcmp(tname, "float")) {
+				/* if it's already "int", don't change */
+				if (pd->prev_class != 'i')
+					pd->prev_class = 'f';
+			}
+			else {
+				/* default to integer class */
+				pd->prev_class = 'i';
+			}
+
+			this_class = pd->prev_class;
+			pd->regs[pd->reg_cnt] = this_class;
+			if ((pd->pos % sizeof(long)) + size >= sizeof(long)) {
+				pd->reg_cnt++;
+				pd->prev_class = ' ';
+			}
+			pd->pos += size;
+			return this_class == 'i' ? PARAM_CLASS_INT : PARAM_CLASS_FP;
+			
+		default:
+			break;
+		}
+	}
+	return PARAM_CLASS_MEM;
+}
+
+static void place_struct_members(Dwarf_Die *die, struct type_data *td)
+{
+	Dwarf_Die child;
+	int param_class = PARAM_CLASS_NONE;
+	struct param_data pd = { .reg_max = 4, .regs = td->struct_regs, };
+
+	td->reg_cnt = 0;
+
+	/* TODO: This is just for x86_64 - handle others too. */
+	if (td->size > 32 * 8)
+		return;
+	if (td->size > 16 * 8)
+		pd.fpregs_only = true;
+
+	if (dwarf_child(die, &child) != 0)
+		return;  /* no child = no member */
+
+	do {
+		switch (dwarf_tag(&child)) {
+		case DW_TAG_member:
+			param_class = get_param_class(&child, &pd);
+			if (param_class == PARAM_CLASS_MEM ||
+			    (param_class != PARAM_CLASS_FP && pd.fpregs_only)) {
+				td->reg_cnt = 0;
+				return;
+			}
+			break;
+
+		case DW_TAG_inheritance:
+			/* TODO */
+			break;
+
+		default:
+			break;
+		}
+	}
+	while (dwarf_siblingof(&child, &child) == 0);
+
+	td->reg_cnt = pd.reg_cnt;
 }
 
 static bool resolve_type_info(Dwarf_Die *die, struct type_data *td)
@@ -493,9 +664,17 @@ static bool resolve_type_info(Dwarf_Die *die, struct type_data *td)
 		case DW_TAG_class_type:
 			pr_dbg3("type: struct/union/class\n");
 			/* ignore struct with no member (when called-by-value) */
-			if (!td->pointer && is_empty_aggregate(die))
-				td->ignore = true;
-			break;
+			if (td->pointer)
+				break;
+
+			td->fmt = ARG_FMT_STRUCT;
+			if (is_empty_aggregate(die))
+				td->size = 0;
+			else
+				td->size = type_size(die, sizeof(long));
+			place_struct_members(die, td);
+			td->struct_regs[td->reg_cnt] = '\0';
+			return true;
 
 		case DW_TAG_pointer_type:
 		case DW_TAG_ptr_to_member_type:
@@ -539,9 +718,6 @@ static bool resolve_type_info(Dwarf_Die *die, struct type_data *td)
 	}
 
 	td->size = type_size(die, sizeof(long));
-	/* TODO: handle aggregate types correctly */
-	if (td->size > sizeof(long) * 8)
-		td->broken = true;
 
 	if (dwarf_tag(die) != DW_TAG_base_type)
 		return false;
@@ -586,9 +762,8 @@ static bool add_type_info(char *spec, size_t len, Dwarf_Die *die,
 	}
 
 	if (!resolve_type_info(die, &data)) {
-		if (data.broken)
-			ad->broken = true;
-		return !data.ignore;
+		ad->broken = data.broken;
+		return true;
 	}
 
 	switch (data.fmt) {
@@ -620,6 +795,13 @@ static bool add_type_info(char *spec, size_t len, Dwarf_Die *die,
 	case ARG_FMT_ENUM:
 		strcat(spec, "/e:");
 		strcat(spec, data.enum_name);
+		break;
+	case ARG_FMT_STRUCT:
+		snprintf(spec, len, "arg%d/t%zd", ad->idx, data.size / 8);
+		if (data.reg_cnt) {
+			strcat(spec, ":");
+			strcat(spec, data.struct_regs);
+		}
 		break;
 	default:
 		break;

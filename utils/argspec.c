@@ -154,11 +154,7 @@ struct uftrace_arg_spec * parse_argspec(char *str,
 					break;
 			}
 		}
-		if (*suffix != '\0') {
-			pr_use("invalid struct spec: %s\n", str);
-			goto err;
-		}
-		goto out;
+		goto type;
 	default:
 		if (fmt == ARG_FMT_FLOAT && isdigit(*suffix))
 			goto size;
