@@ -91,4 +91,10 @@ void release_enum_def(struct rb_root *root);
 
 extern struct rb_root dwarf_enum;
 
+struct uftrace_arg_arranger {
+	int next_int_reg;
+	int next_fp_reg;
+	int next_stack_ofs;
+};
+
 #endif  /* UFTRACE_ARGSPEC_H */

@@ -230,3 +230,128 @@ err:
 	return NULL;
 }
 
+static void arrange_struct_args(struct uftrace_arg_spec *arg,
+				struct uftrace_arg_arranger *aa,
+				struct uftrace_filter_setting *setting)
+{
+	int i;
+	short reg;
+	char reg_types[4];
+	int orig_int_reg = aa->next_int_reg;
+	int orig_fp_reg = aa->next_fp_reg;
+
+	memcpy(reg_types, arg->reg_types, sizeof(reg_types));
+
+	arg->stack_ofs = 0;
+	arg->struct_regs = xcalloc(arg->struct_reg_cnt, sizeof(*arg->struct_regs));
+
+	for (i = 0; i < arg->struct_reg_cnt; i++) {
+		if (reg_types[i] == 'i')
+			reg = arch_register_at(setting->arch, true,
+					       aa->next_int_reg++);
+		else
+			reg = arch_register_at(setting->arch, false,
+					       aa->next_fp_reg++);
+
+		if (reg < 0) {
+			pr_dbg("struct register allocation failure\n");
+			arg->type = ARG_TYPE_STACK;
+			arg->stack_ofs = aa->next_stack_ofs;
+			aa->next_stack_ofs += DIV_ROUND_UP(arg->size, sizeof(long));
+
+			free(arg->struct_regs);
+			arg->struct_regs = NULL;
+			arg->struct_reg_cnt = 0;
+
+			/* restore original state */
+			aa->next_int_reg = orig_int_reg;
+			aa->next_fp_reg = orig_fp_reg;
+			return;
+		}
+
+		arg->struct_regs[i] = reg;
+	}
+
+	/* TODO: pass remaining fields via stack (for ARM?) */
+}
+
+/*
+ * Re-arrange arguments position which might be affected by struct passed
+ * by-value.  They can be passed by registers (maybe partially).  We convert
+ * arguments given by index to have specific registers or stack offset.
+ * It assumes all arguments are specified in the @args
+ */
+int reallocate_argspec(struct list_head *args,
+		       struct uftrace_filter_setting *setting)
+{
+	struct uftrace_arg_spec *arg;
+	struct uftrace_arg_arranger aa;
+	int reg;
+
+	memset(&aa, 0, sizeof(aa));
+
+	list_for_each_entry(arg, args, list) {
+		/*
+		 * We should honor if user specified arguments in register or
+		 * stack, use it as is and update the allocation status.
+		 */
+		switch (arg->type) {
+		case ARG_TYPE_REG:
+			reg = arch_register_index(setting->arch, arg->reg_idx);
+
+			if (arg->fmt == ARG_FMT_FLOAT)
+				aa.next_fp_reg = reg + 1;
+			else
+				aa.next_int_reg = reg + 1;
+			break;
+
+		case ARG_TYPE_STACK:
+			aa.next_stack_ofs  = arg->stack_ofs;
+			aa.next_stack_ofs += DIV_ROUND_UP(arg->size, sizeof(long));
+			break;
+
+		case ARG_TYPE_INDEX:
+			arg->type = ARG_TYPE_REG;
+
+			if (arg->fmt == ARG_FMT_STRUCT) {
+				arrange_struct_args(arg, &aa, setting);
+				break;
+			}
+			arg->reg_idx = arch_register_at(setting->arch, true,
+							aa.next_int_reg++);
+			if (arg->reg_idx < 0) {
+				/*
+				 * it's ok to leave next_int_reg incremented
+				 * since it's already full
+				 */
+				arg->type = ARG_TYPE_STACK;
+				arg->stack_ofs = aa.next_stack_ofs;
+
+				aa.next_stack_ofs += DIV_ROUND_UP(arg->size,
+								  sizeof(long));
+			}
+			break;
+
+		case ARG_TYPE_FLOAT:
+			arg->type = ARG_TYPE_REG;
+			arg->reg_idx = arch_register_at(setting->arch, false,
+							aa.next_fp_reg++);
+			if (arg->reg_idx < 0) {
+				/*
+				 * it's ok to leave next_fp_reg incremented
+				 * since it's already full
+				 */
+				arg->type = ARG_TYPE_STACK;
+				arg->stack_ofs = aa.next_stack_ofs;
+
+				aa.next_stack_ofs += DIV_ROUND_UP(arg->size,
+								  sizeof(long));
+			}
+			break;
+
+		default:
+			break;
+		}
+	}
+	return 0;
+}
