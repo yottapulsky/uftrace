@@ -57,7 +57,7 @@ int main(int argc, char *argv[])
 	enum uftrace_pattern_type ptype = PATT_REGEX;
 	int opt;
 
-	while ((opt = getopt(argc, argv, "aA:R:")) != -1) {
+	while ((opt = getopt(argc, argv, "aA:R:v")) != -1) {
 		switch (opt) {
 		case 'a':
 			auto_args = true;
@@ -67,6 +67,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'R':
 			retspec = optarg;
+			break;
+		case 'v':
+			debug++;
 			break;
 		default:
 			printf("dbginfo: unknown option: %c\n", opt);
@@ -79,6 +82,17 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 	filename = argv[optind];
+
+	logfp = stderr;
+	outfp = stdout;
+
+	if (debug) {
+		int d;
+
+		/* set default debug level */
+		for (d = 0; d < DBG_DOMAIN_MAX; d++)
+			dbg_domain[d] = debug;
+	}
 
 	map = xzalloc(sizeof(*map) + strlen(filename) + 1);
 	strcpy(map->libname, filename);
