@@ -382,10 +382,10 @@ static void pr_args(struct fstack_arguments *args)
 			dinfo = &map->mod->dinfo;
 			memcpy(&val, ptr, spec->size);
 			enum_def = get_enum_string(&dinfo->enums,
-						   spec->enum_str, val);
+						   spec->type_name, val);
 
 			pr_out("  args[%d] enum %s: %s (%lld)\n", i,
-			       spec->enum_str, enum_def, val);
+			       spec->type_name, enum_def, val);
 
 			free(enum_def);
 			size = spec->size;
@@ -394,7 +394,7 @@ static void pr_args(struct fstack_arguments *args)
 			int c;
 			unsigned char *p = ptr;
 
-			pr_out("  args[%d] struct:", i);
+			pr_out("  args[%d] struct %s:", i, spec->type_name ?: "");
 			for (c = 0 ; c < spec->size; c++) {
 				if ((c % 16) == 0)
 					pr_out("\n\t");

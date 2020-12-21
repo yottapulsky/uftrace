@@ -132,19 +132,31 @@ struct uftrace_arg_spec * parse_argspec(char *str,
 			pr_use("invalid enum spec: %s\n", suffix);
 			goto err;
 		}
-		arg->enum_str = xstrdup(&suffix[2]);
+		arg->type_name = xstrdup(&suffix[2]);
 
-		p = strchr(arg->enum_str, '%');
+		p = strchr(arg->type_name, '%');
 		if (p)
 			*p = '\0';
-		pr_dbg2("parsing argspec for enum: %s\n", arg->enum_str);
-		suffix += strlen(arg->enum_str) + 2;
+		pr_dbg2("parsing argspec for enum: %s\n", arg->type_name);
+		suffix += strlen(arg->type_name) + 2;
 		goto type;
 	case 't':
 		/* struct/union/class passed-by-value */
 		fmt = ARG_FMT_STRUCT;
 		size = strtol(&suffix[1], &suffix, 0);
 		arg->struct_reg_cnt = 0;
+
+		if (*suffix == ':') {
+			arg->type_name = xstrdup(&suffix[1]);
+			p = strchr(arg->type_name, '%');
+			if (p)
+				*p = '\0';
+
+			suffix += strlen(arg->type_name) + 1;
+		}
+
+		pr_dbg2("parsing argspec for struct: %s\n",
+			arg->type_name ?: "(no name)");
 
 		if (*suffix == '%') {
 			if (!strncmp(suffix, "%stack+", 7))

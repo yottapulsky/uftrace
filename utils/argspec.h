@@ -49,10 +49,8 @@ struct uftrace_arg_spec {
 		short		reg_idx;
 		short		stack_ofs;
 	};
-	union {
-		char		*enum_str;
-		short		struct_regs[4];
-	};
+	char			*type_name;
+	short			struct_regs[4];
 };
 
 struct uftrace_filter_setting;
