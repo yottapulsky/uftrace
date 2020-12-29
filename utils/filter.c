@@ -236,12 +236,6 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 	}
 }
 
-void free_arg_spec(struct uftrace_arg_spec *arg)
-{
-	free(arg->type_name);
-	free(arg);
-}
-
 void add_trigger(struct uftrace_filter *filter, struct uftrace_trigger *tr,
 		 bool exact_match)
 {

@@ -249,7 +249,41 @@ out:
 
 err:
 	pr_dbg("argspec parse failed: %s\n", str);
-	free(arg);
+	free_arg_spec(arg);
 	return NULL;
 }
 
+void free_arg_spec(struct uftrace_arg_spec *arg)
+{
+	free(arg->type_name);
+	free(arg);
+}
+
+#ifdef UNIT_TEST
+TEST_CASE(argspec_parse_struct)
+{
+	char *str;
+	struct uftrace_arg_spec *spec;
+	struct uftrace_filter_setting setting = { .arch = UFT_CPU_X86_64 };
+
+	/* parse_argspec might change the string, copy it */
+	str = strdup("arg3/t16:mystruct%RDI+RSI");
+	pr_dbg("parsing a struct passed by value: %s\n");
+
+	spec = parse_argspec(str, &setting);
+	TEST_NE(spec, NULL);
+	TEST_EQ(spec->idx, 3);
+	TEST_EQ(spec->fmt, ARG_FMT_STRUCT);
+	TEST_EQ(spec->size, 16);
+	TEST_EQ(spec->type, ARG_TYPE_REG);
+
+	TEST_STREQ(spec->type_name, "mystruct");
+	TEST_EQ(spec->struct_reg_cnt, 2);
+	TEST_EQ(spec->struct_regs[0], UFT_X86_64_REG_RDI);
+	TEST_EQ(spec->struct_regs[1], UFT_X86_64_REG_RSI);
+
+	free_arg_spec(spec);
+	free(str);
+	return TEST_OK;
+}
+#endif  /* UNIT_TEST */
