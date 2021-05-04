@@ -277,6 +277,7 @@ struct opts {
 	bool graphviz;
 	bool srcline;
 	bool estimate_return;
+	bool no_daemon;
 	struct uftrace_time_range range;
 	enum uftrace_pattern_type patt_type;
 };
@@ -388,6 +389,12 @@ enum uftrace_msg_type {
 	UFTRACE_MSG_SEND_INFO,
 	UFTRACE_MSG_SEND_META_DATA,
 	UFTRACE_MSG_SEND_END,
+};
+
+/* Dynamic options sent by the client to the daemon */
+enum uftrace_dopt {
+    UFTRACE_DOPT_CLOSE,         /* Close the connection with the client */
+    UFTRACE_DOPT_KILL,          /* Kill the daemon */
 };
 
 /* msg format for communicating by pipe */
